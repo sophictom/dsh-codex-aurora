@@ -462,10 +462,10 @@ section("10. 只有最高档是紫色；星点匀速横移、亮度恒定");
   ok(internals.CSS.indexOf("@keyframes ces-star-fade") < 0, "[10] 淡入淡出关键帧已删除（实机没有亮灭）");
   ok(internals.CSS.indexOf("@keyframes ces-star-scale") < 0, "[10] 缩放关键帧已删除");
   ok(internals.CSS.indexOf("@keyframes ces-star-twinkle") < 0, "[10] 旧 twinkle 关键帧已删除");
-  ok(internals.CSS.indexOf("@keyframes ces-star-drift") > 0, "[10] 只有位移关键帧");
-  const driftKey = internals.CSS.slice(internals.CSS.indexOf("@keyframes ces-star-drift"));
-  ok(driftKey.indexOf("translate3d(-50%") > 0, "[10] 位移 -50%（复制品正好接上，无缝）");
+  ok(internals.CSS.indexOf("@keyframes ces-star-drift") > 0, "[10] 内层二次位移的关键帧在");
+  const driftKey = internals.CSS.slice(internals.CSS.indexOf("@keyframes ces-star-drift"), internals.CSS.indexOf("}", internals.CSS.indexOf("@keyframes ces-star-drift")) + 400);
   ok(driftKey.indexOf("opacity") < 0, "[10] 位移关键帧不碰 opacity（亮度恒定）");
+  ok(internals.WANDER_CSS.indexOf("opacity") < 0, "[10] 游走关键帧也不碰 opacity");
   ok(internals.CSS.indexOf("ces-energy__edge") < 0, "[10] 旋钮侧固定高光已删除（实机是整条在变，不是端点固定）");
   ok(react.find("edge") == null, "[10] 渲染里没有固定高光节点");
 
@@ -481,30 +481,49 @@ section("10. 只有最高档是紫色；星点匀速横移、亮度恒定");
   ok(react.find("shade") !== null, "[10] 渲染出了极光（暗）层");
   eq(react.find("stars").style.width, react.find("fill").style.width, "[10] 星点层与填充层同宽");
 
-  // ── 三条星带：匀速、无限、负相位
-  const fields = react.findAll("starfield");
-  eq(fields.length, internals.STAR_LAYERS.length, "[10] 三条星带都在");
-  const fdurs = fields.map((f) => parseFloat(f.style.animationDuration));
-  ok(fdurs.every((d) => d > 12 && d < 33), `[10] 星带周期落在 14~30s（${fdurs.join(" / ")}）`);
-  eq(new Set(fdurs).size, fdurs.length, "[10] 三条带周期各不相同（视差）");
-  ok(fields.every((f) => parseFloat(f.style.animationDelay) < 0), "[10] 相位用负延迟错开");
-  ok(fields.every((f) => String(f.style.animationDuration).endsWith("s")), "[10] 时长内联（真宿主里变量传计时会失效）");
-  ok(/animation-timing-function:linear/.test(internals.CSS), "[10] 匀速（linear，不是 ease）");
+  // ── 每颗星：各自一条游走路径（不是整条横穿），亮度恒定
+  const stars = react.findAll("star");
+  eq(stars.length, internals.STAR_COUNT, `[10] 星点 ${internals.STAR_COUNT} 颗（实机截图数出来约 12 颗）`);
+  const names = stars.map((n) => n.style.animationName);
+  eq(new Set(names).size, names.length, "[10] 每颗星挂的是**各自**的 @keyframes（路径互不相同）");
+  ok(names.every((v) => /^ces-wander-\d+$/.test(String(v))), "[10] 动画名是生成的 ces-wander-N");
+  ok(internals.WANDER_CSS.split("@keyframes").length - 1 === internals.STAR_COUNT, "[10] 关键帧条数与星点数一致");
+  // 每颗的途经点都不同 → 不是"同一条路径按幅度缩放"
+  const firstStop = (i) => (internals.WANDER_CSS.match(new RegExp(`ces-wander-${i}\\{[^}]*\\}20%\\{transform:translate3d\\(([^)]*)\\)`)) || [])[1];
+  const stops = internals.STAR_COUNT ? [...Array(internals.STAR_COUNT).keys()].map(firstStop) : [];
+  ok(stops.every((v) => typeof v === "string" && v.length > 0), "[10] 每颗都有 20% 途经点");
+  eq(new Set(stops).size, stops.length, "[10] 各星途经点互不相同（路径真的不一样）");
 
-  // ── 星点本体：每颗一份本体 + 一份复制品，尺寸内联，自身零动画
+  const wdurs = stars.map((n) => parseFloat(n.style.animationDuration));
+  ok(wdurs.every((d) => d > 12 && d < 22), `[10] 游走周期 13~21s（${wdurs.map((d) => d.toFixed(1)).join(" / ")}）`);
+  ok(stars.every((n) => parseFloat(n.style.animationDelay) < 0), "[10] 相位用负延迟错开");
+  ok(stars.every((n) => String(n.style.animationDuration).endsWith("s")), "[10] 时长内联（真宿主里变量传计时会失效）");
+  ok(/animation-timing-function:ease-in-out/.test(internals.CSS), "[10] 缓入缓出（不是匀速横移）");
+  ok(internals.CSS.indexOf("translate3d(-50%") < 0, "[10] 不再有整条横穿的关键帧");
+
+  // 每颗星只在自己那一小块里动：幅度上限 9px 横 / 3.5px 纵
+  ok(internals.PARTICLES.every((q) => q.ampX >= 5 && q.ampX <= 9), "[10] 横向游走幅度 5~9px（不是横穿整条轨道）");
+  ok(internals.PARTICLES.every((q) => q.ampY >= 2.5 && q.ampY <= 3.5), "[10] 纵向游走幅度 2.5~3.5px");
+  // 纵向范围 + 幅度 + 半径 必须留在条子内（轨道 24px）
+  const trackH = internals.TRACK_HEIGHT;
+  ok(internals.PARTICLES.every((q) => {
+    const cy = (q.y / 100) * trackH;
+    return cy - q.ampY - q.size / 2 >= 0 && cy + q.ampY + q.size / 2 <= trackH;
+  }), "[10] 纵向游走 + 星点半径始终留在 24px 条子内（不会被裁）");
+
+  // ── 星点本体：亮度恒定（零不透明度动画），尺寸内联
   const dots = react.findAll("particle");
-  eq(dots.length, internals.PARTICLES.length * 2, "[10] 每颗星有本体 + 复制品（接续用）");
-  ok(dots.every((n) => n.style.animation === undefined && n.style.animationName === undefined), "[10] 圆点自身没有任何动画（亮度恒定）");
+  eq(dots.length, internals.STAR_COUNT, "[10] 每颗星只有一个圆点（不再有复制品）");
+  ok(dots.every((n) => n.style.opacity === undefined), "[10] 圆点没有透明度动画（亮度恒定）");
   ok(dots.every((n) => String(n.style["--ces-s"]).endsWith("px")), "[10] 尺寸内联");
   const sizes = dots.map((n) => parseFloat(n.style["--ces-s"]));
-  ok(sizes.every((v) => v > 2.0 && v < 2.9), `[10] 星点 2.2~2.7px（含柔边，实机核心 2×2 像素、约条高的 8%）`);
-  const stars = react.findAll("star");
+  ok(sizes.every((v) => Math.abs(v - 2.3) < 0.01), `[10] 星点统一 2.3px（实机可见范围 4px / 条高 36 → 24px 轨道上约 2.6px）`);
+  ok(dots.every((n) => String(n.style["--bx"]).endsWith("px") && String(n.style["--by"]).endsWith("px")), "[10] 内层二次位移幅度内联");
   const xs = stars.map((n) => parseFloat(n.style.left));
-  ok(xs.every((v) => v >= 2 && v <= 98), "[10] 横向位置落在 2%~98%（本体 + 复制品）");
+  ok(xs.every((v) => v >= 5 && v <= 93), "[10] 横向位置落在 6%~92%");
   const ys = stars.map((n) => parseFloat(n.style.top));
-  ok(ys.every((v) => v >= 10 && v <= 90), "[10] 纵向位置落在 12%~88%");
+  ok(ys.every((v) => v >= internals.STAR_Y_MIN && v <= internals.STAR_Y_MAX), "[10] 纵向位置落在 25%~75%");
   ok(internals.PARTICLES.length <= 16, `[10] 星点只有 ${internals.PARTICLES.length} 颗（≤16，不糊满整条轨道）`);
-  ok(internals.PARTICLES.every((q) => q.dy === undefined && q.dx === undefined), "[10] 粒子模型里没有上下/短掠过位移字段");
   ok(CODE.indexOf("Math.random") < 0, "[10] 代码里没有 Math.random（星点可复现）");
   ok(host.selects.length >= 1, "[10] 这一段的所有拖动都真的写回了宿主");
 }
@@ -521,10 +540,12 @@ section("10b. 系统「减少动态效果」下是放缓，不是冻住");
   }
 
   const normal = await setupAtMax();
-  const field = normal.react.findAll("starfield")[0];
+  const star = normal.react.findAll("star")[0];
+  const dot = normal.react.findAll("particle")[0];
   // 时长/相位**必须内联**：实测写成 CSS 变量时真宿主里负相位不生效
-  ok(typeof field.style.animationDuration === "string" && field.style.animationDuration.endsWith("s"), "[10b] 时长是内联的（不走 CSS 变量）");
-  ok(typeof field.style.animationDelay === "string" && field.style.animationDelay.startsWith("-"), "[10b] 负相位也是内联的");
+  ok(typeof star.style.animationDuration === "string" && star.style.animationDuration.endsWith("s"), "[10b] 游走时长是内联的（不走 CSS 变量）");
+  ok(typeof star.style.animationDelay === "string" && star.style.animationDelay.startsWith("-"), "[10b] 负相位也是内联的");
+  ok(typeof dot.style.animationDuration === "string" && dot.style.animationDuration.endsWith("s"), "[10b] 内层二次位移的时长也内联");
   ok(normal.internals.CSS.indexOf("animation-duration:var(") < 0 && normal.internals.CSS.indexOf("animation-delay:var(") < 0, "[10b] 样式表里不再用变量传动画计时（那正是相位失效的原因）");
   eq(normal.react.find("root").getAttribute("data-motion"), "full", "[10b] 正常模式标记 full");
   ok(String(normal.react.find("track").getAttribute("title")).indexOf("减少动态效果") < 0, "[10b] 正常模式 title 不提系统设置");
@@ -533,13 +554,13 @@ section("10b. 系统「减少动态效果」下是放缓，不是冻住");
   eq(reduced.react.find("root").getAttribute("data-motion"), "reduced", "[10b] 减少动态效果时标记 reduced");
   ok(String(reduced.react.find("track").getAttribute("title")).indexOf("减少动态效果") >= 0, "[10b] 并用 title 说明原因（用户不用猜）");
   eq(reduced.react.findAll("star").length, normal.react.findAll("star").length, "[10b] 减少动态效果时星点照常存在（只是放缓）");
-  // 放缓改在 JS 里算：同一条带的时长应当正好是正常模式的 2.6 倍
-  const normalDur = parseFloat(field.style.animationDuration);
-  const reducedDur = parseFloat(reduced.react.findAll("starfield")[0].style.animationDuration);
-  near(reducedDur / normalDur, reduced.internals.REDUCED_MOTION_SLOWDOWN, "[10b] 减少动态效果 → 星带周期 ×2.6（放缓，而不是冻住）", 0.01);
-  // 相位要跟着时长一起缩放，否则各带的相对相位会跳
-  const reducedDelay = parseFloat(reduced.react.findAll("starfield")[0].style.animationDelay);
-  const normalDelay = parseFloat(field.style.animationDelay);
+  // 放缓改在 JS 里算：同一颗星的游走周期应当正好是正常模式的 2.6 倍
+  const normalDur = parseFloat(star.style.animationDuration);
+  const reducedDur = parseFloat(reduced.react.findAll("star")[0].style.animationDuration);
+  near(reducedDur / normalDur, reduced.internals.REDUCED_MOTION_SLOWDOWN, "[10b] 减少动态效果 → 游走周期 ×2.6（放缓，而不是冻住）", 0.01);
+  // 相位要跟着时长一起缩放，否则各星的相对相位会跳
+  const reducedDelay = parseFloat(reduced.react.findAll("star")[0].style.animationDelay);
+  const normalDelay = parseFloat(star.style.animationDelay);
   near(reducedDelay / normalDelay, reduced.internals.REDUCED_MOTION_SLOWDOWN, "[10b] 相位也一起缩放（相对相位不跳）", 0.01);
 
   const css = reduced.internals.CSS;
@@ -748,7 +769,7 @@ section("16. Off 档保持官方灰 + 刻度点更小更淡");
   const tickCss = internals.CSS.slice(internals.CSS.indexOf(".ces-tick{"), internals.CSS.indexOf("}", internals.CSS.indexOf(".ces-tick{")));
   ok(tickCss.indexOf("width:3px;height:3px") > 0, "[16] 刻度点 5px → 3px（更小）");
   ok(tickCss.indexOf("26%,transparent") > 0, "[16] 未达到的刻度 38% → 26%（更淡）");
-  ok(internals.CSS.indexOf(".ces-tick[data-on='1']{background:rgba(255,255,255,.5)}") > 0, "[16] 已达刻度 92% → 50% 白（更淡，不再和星星抢眼）");
+  ok(internals.CSS.indexOf(".ces-tick[data-on='1']{background:rgba(255,255,255,.18)}") > 0, "[16] 已达刻度 92% → 18% 白（实机填充段几乎看不见刻度点，避免被当成星点）");
   const tickNodes = off.react.findAll("tick");
   ok(tickNodes.length >= 4, `[16] 4 档就有 4 个刻度点（实测 ${tickNodes.length}）`);
 }

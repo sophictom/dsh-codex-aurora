@@ -183,27 +183,29 @@
     to{transform:translate3d(-19%,8%,0)}
   }
   .ultra .stars{position:absolute;inset:0;overflow:hidden;border-radius:999px}
-  /* 星带：200% 宽，匀速左移半层宽 —— 左侧出画与右侧复制品入画严格接续，看不到闪现 */
-  .ultra .field{
-    position:absolute;top:0;bottom:0;left:0;width:200%;
-    animation-name:star-drift;
-    animation-timing-function:linear;
+  /* 每颗星在自己的小区域里缓慢游走（上下左右），关键帧由 JS 按星生成 */
+  .ultra .star{
+    position:absolute;width:var(--s);height:var(--s);
+    animation-timing-function:ease-in-out;
     animation-iteration-count:infinite;
     will-change:transform;
   }
-  @keyframes star-drift{
-    from{transform:translate3d(0,0,0)}
-    to{transform:translate3d(-50%,0,0)}
-  }
-  /* 星点：2px 浅紫圆点，亮度恒定（没有任何 opacity/scale 动画） */
-  .ultra .star{
-    position:absolute;width:var(--s);height:var(--s);margin:calc(var(--s) / -2) 0 0 calc(var(--s) / -2);
+  .ultra .star i{
+    position:absolute;left:0;top:0;width:100%;height:100%;margin:calc(var(--s) / -2) 0 0 calc(var(--s) / -2);
     border-radius:50%;
     background:radial-gradient(circle at 50% 50%,
-      rgba(216,174,255,.97) 0%,
-      rgba(210,166,255,.88) 40%,
-      rgba(204,158,255,.42) 70%,
-      rgba(200,152,255,0) 100%);
+      rgba(238,224,255,1) 0%,
+      rgba(232,214,255,1) 62%,
+      rgba(220,190,255,.42) 84%,
+      rgba(214,182,255,0) 100%);
+    animation-name:star-drift2;
+    animation-timing-function:ease-in-out;
+    animation-iteration-count:infinite;
+    will-change:transform;
+  }
+  @keyframes star-drift2{
+    0%,100%{transform:translate3d(calc(var(--bx) * -1),calc(var(--by) * -0.6),0)}
+    50%{transform:translate3d(var(--bx),var(--by),0)}
   }
 
   /* ---------- 刻度点 ---------- */
@@ -212,7 +214,7 @@
     border-radius:50%;background:var(--tick);pointer-events:none;
     transition:background .18s ease;
   }
-  .tick[data-on="1"]{background:var(--tick-on)}
+  .tick[data-on="1"]{background:rgba(255,255,255,.18)}
 
   /* ---------- 旋钮 ---------- */
   .knob{
@@ -383,37 +385,47 @@
 
   /* ---------- 星点：三层星带匀速左移，亮度恒定（实机实测：只移动、不闪烁） ---------- */
   // 每条带 4 颗，铺在 [2%,48%]，另有一份复制品在 +50% 处；带走完 -50% 时复制品正好接上
-  const STAR_LAYERS = [
-    { count: 4, duration: 30 },
-    { count: 4, duration: 21 },
-    { count: 4, duration: 14 }
-  ];
+  // 12 颗（实机截图数出来约 12 颗），每颗在自己的小区域里缓慢游走
+  const STAR_COUNT = 12;
   const h01 = (i, salt) => {
     const v = ((i + 1) * salt * 2654435761) % 4294967296;
     return ((v >>> 8) % 1000) / 1000;
   };
-  let starIndex = 0;
-  STAR_LAYERS.forEach((layer, li) => {
-    const field = document.createElement("div");
-    field.className = "field";
-    field.style.animationDuration = layer.duration + "s";
-    field.style.animationDelay = (-(layer.duration * (0.13 + 0.21 * li))).toFixed(2) + "s";
-    for (let k = 0; k < layer.count; k++) {
-      const x = 2 + h01(starIndex, 97) * 46;
-      const y = 12 + h01(starIndex, 53) * 76;
-      const size = 2.2 + h01(starIndex, 29) * 0.5;
-      for (let copy = 0; copy < 2; copy++) {
-        const d = document.createElement("div");
-        d.className = "star";
-        d.style.left = (x + copy * 50).toFixed(2) + "%";
-        d.style.top = y.toFixed(1) + "%";
-        d.style.setProperty("--s", size.toFixed(2) + "px");
-        field.appendChild(d);
-      }
-      starIndex++;
+  let wanderCss = "";
+  for (let i = 0; i < STAR_COUNT; i++) {
+    const ampX = 5 + h01(i, 61) * 4;          // 横向 ±5~9px
+    const ampY = 2.5 + h01(i, 67) * 1.0;      // 纵向 ±2.5~3.5px（条子只有 24px 高）
+    const dur = 13 + h01(i, 71) * 8;          // 13~21s
+    const d = document.createElement("div");
+    d.className = "star";
+    // 横向用黄金比低差异序列铺开（比纯哈希均匀），纵向仍用哈希 → 散落感
+    const xBase = (i * 0.6180339887498949 + 0.11) % 1;
+    d.style.left = (6 + (xBase * 0.92 + h01(i, 97) * 0.08) * 86).toFixed(2) + "%";
+    d.style.top = (25 + h01(i, 53) * 50).toFixed(1) + "%";
+    d.style.setProperty("--s", "2.3px");
+    d.style.animationName = "wander-" + i;
+    d.style.animationDuration = dur.toFixed(2) + "s";
+    d.style.animationDelay = (-h01(i, 173) * dur).toFixed(2) + "s";
+    const dot = document.createElement("i");
+    dot.style.setProperty("--bx", (0.9 + h01(i, 211) * 1.4).toFixed(2) + "px");
+    dot.style.setProperty("--by", (0.5 + h01(i, 223) * 0.9).toFixed(2) + "px");
+    dot.style.animationDuration = (17 + h01(i, 227) * 12).toFixed(2) + "s";
+    dot.style.animationDelay = (-h01(i, 233) * 29).toFixed(2) + "s";
+    d.appendChild(dot);
+    starsEl.appendChild(d);
+    // 每颗星一条自己的闭合回路（四个途经点在 ±amp 的方框里确定性随机）
+    let frames = "0%{transform:translate3d(0,0,0)}";
+    for (let k = 0; k < 4; k++) {
+      const fx = (h01(i, 211 + k * 7) * 2 - 1) * ampX;
+      const fy = (h01(i, 307 + k * 11) * 2 - 1) * ampY;
+      frames += (k + 1) * 20 + "%{transform:translate3d(" + fx.toFixed(2) + "px," + fy.toFixed(2) + "px,0)}";
     }
-    starsEl.appendChild(field);
-  });
+    frames += "100%{transform:translate3d(0,0,0)}";
+    wanderCss += "@keyframes wander-" + i + "{" + frames + "}";
+  }
+  const starCss = document.createElement("style");
+  starCss.textContent = wanderCss;
+  document.head.appendChild(starCss);
 
   /* ---------- 状态 ---------- */
   let index = 2;            // 当前生效档位
