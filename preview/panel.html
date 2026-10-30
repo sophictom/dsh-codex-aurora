@@ -1,0 +1,581 @@
+<!DOCTYPE html>
+<!--
+  Codex「推理强度」选择器 · 视觉规格
+  所有数值来自 Codex 实机截图 + 录屏逐帧量取，非估算：
+
+  几何（1x CSS px）
+    实机量取：轨道 345×36，旋钮 Ø40（比轨道高 4px，上下各溢出 2px）
+    本页按同一比例缩小：轨道 24、旋钮 28（用户要求"条子再细一点"）
+    旋钮圆心行程 = 半径 14 → 宽 − 28，即 left: calc(14px + p * (100% - 28px))
+    填充宽度 = 圆心 + 半径 − 2px，右端圆弧才与旋钮嵌套（只画到圆心会露缺口）
+    刻度点 Ø5，位于 25% / 50% / 75% / 100%（最低档不画点），位置同样内缩半径
+    已填充刻度 = 白色 42%；未填充 = 黑 20%（深色模式 白 28%）
+
+  颜色
+    普通档填充 #339CFF（纯色，无渐变）
+    最高档（Ultra）才启用紫色渐变：左 #7E90FA → 中 #A594FD → 右 #744AE7
+    标题 / 折叠态标签：#339CFF；Ultra 为 #924FF7（深色 #AD7BF9）
+
+  最高档配色（跨 8 个时刻逐列取中位）
+    底色静止：0% #7E90FA → 35% #A594FD → 52% #A87FFE → 70% #9458FB → 90% #744AE7
+    "颜色会轻微变化"来自两层极光在缓慢游走：
+      .aurora（亮，screen 叠加，27s 斜向来回摆）+ .shade（暗，41s 反相摆）
+    实机实测亮区位置随时间在 0%~75% 之间移动，单帧静态渐变复现不了
+
+  动画
+    星点是**匀速左移**的，亮度恒定（没有任何明暗变化）：
+      三层星带 30s / 21s / 14s 各走完半层宽，左侧出画与右侧复制品入画无缝接续
+      星点 2px 浅紫圆点（#D19DFF 附近），柔边 1px，没有大范围辉光
+-->
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Codex 推理强度选择器</title>
+<style>
+  :root{
+    --bg:#f5f5f7;
+    --panel:#ffffff;
+    --panel-line:rgba(0,0,0,.06);
+    --track:#e8e7e8;
+    --tick:rgba(0,0,0,.20);
+    --tick-on:rgba(255,255,255,.42);
+    --text:#1a1c1f;
+    --sub:#8a8a8e;
+    --icon:#b9b9bd;
+    --accent:#339cff;
+    --accent-max:#924ff7;
+    --chip:#f1f1f3;
+    --send:#8e8e93;
+    --shadow:0 10px 30px rgba(15,17,21,.10),0 2px 8px rgba(15,17,21,.06);
+  }
+  html[data-theme="dark"]{
+    --bg:#1c1c1c;
+    --panel:#282828;
+    --panel-line:rgba(255,255,255,.07);
+    --track:#3f3f3f;
+    --tick:rgba(255,255,255,.28);
+    --tick-on:rgba(255,255,255,.34);
+    --text:#f2f2f2;
+    --sub:#9a9a9e;
+    --icon:#8b8b8b;
+    --accent-max:#ad7bf9;
+    --chip:#333335;
+    --send:#7c7c80;
+    --shadow:0 10px 30px rgba(0,0,0,.45),0 2px 8px rgba(0,0,0,.3);
+  }
+  *{box-sizing:border-box}
+  html,body{height:100%}
+  body{
+    margin:0;background:var(--bg);color:var(--text);
+    font-family:-apple-system,BlinkMacSystemFont,"Segoe UI","PingFang SC","Microsoft YaHei UI","Microsoft YaHei",system-ui,sans-serif;
+    -webkit-font-smoothing:antialiased;
+    display:flex;flex-direction:column;align-items:center;justify-content:center;
+    gap:34px;padding:56px 24px;transition:background .25s ease;
+  }
+
+  /* ---------- 舞台 ---------- */
+  .stage{position:relative;width:400px}
+
+  /* ---------- 面板 ---------- */
+  .panel{
+    position:relative;width:100%;
+    background:var(--panel);
+    border:1px solid var(--panel-line);
+    border-radius:20px;
+    padding:19px 26px 18px;
+    box-shadow:var(--shadow);
+    transition:background .25s ease,border-color .25s ease,box-shadow .25s ease;
+    z-index:2;
+  }
+  .head{position:relative;height:28px;display:flex;align-items:center;justify-content:center}
+  .title{
+    font-size:22px;font-weight:600;line-height:28px;letter-spacing:.005em;
+    color:var(--tier-color);
+    transition:color .22s ease;
+  }
+  .reset{
+    position:absolute;right:-4px;top:50%;transform:translateY(-50%);
+    width:28px;height:28px;border:0;background:none;padding:0;cursor:pointer;
+    color:var(--icon);display:grid;place-items:center;border-radius:8px;
+    transition:color .15s ease,background .15s ease;
+  }
+  .reset:hover{color:var(--text);background:rgba(128,128,128,.10)}
+  .reset:active{transform:translateY(-50%) scale(.94)}
+  .reset svg{width:17px;height:17px;display:block}
+
+  .sub{
+    display:flex;align-items:center;justify-content:center;gap:2px;
+    margin-top:1px;height:20px;
+    font-size:15px;line-height:20px;color:var(--sub);
+    transition:color .22s ease;
+  }
+  .sub .chev{width:13px;height:13px;opacity:.75}
+
+  /* ---------- 滑条 ---------- */
+  .track{
+    position:relative;height:24px;margin-top:20px;border-radius:999px;
+    background:var(--track);
+    cursor:pointer;touch-action:none;user-select:none;-webkit-user-select:none;
+    transition:background .25s ease;
+  }
+  .track:focus-visible{outline:2px solid var(--accent);outline-offset:3px}
+
+  .fill{
+    position:absolute;top:0;left:0;bottom:0;width:0;
+    border-radius:999px;
+    overflow:hidden;pointer-events:none;isolation:isolate;
+    background:var(--accent);
+  }
+
+  /* 蓝色档位上的极轻竖向明暗，避免死板 */
+  .fill::after{
+    content:"";position:absolute;inset:0;pointer-events:none;
+    background:linear-gradient(180deg,rgba(0,0,0,.035),rgba(255,255,255,.05));
+  }
+
+  /* ---------- Ultra 专属层 ---------- */
+  .ultra{
+    position:absolute;inset:0;opacity:0;
+    transition:opacity .22s ease;
+  }
+  .ultra[data-on="1"]{opacity:1}
+  /* 底色：实机录屏跨 8 个时刻逐列取中位数得到的渐变 */
+  .ultra .grad{
+    position:absolute;inset:0;
+    background:linear-gradient(90deg,
+      #7e90fa 0%,
+      #8b8efc 12%,
+      #9892fb 25%,
+      #a594fd 35%,
+      #ab8cfa 45%,
+      #a87ffe 52%,
+      #a674fd 60%,
+      #9458fb 70%,
+      #814eee 80%,
+      #744ae7 90%,
+      #764de9 100%);
+  }
+  /* 极光（亮）：两块浅紫光斑，27s 斜向来回摆一趟。
+     screen 混合 —— 用白色普通叠加会把紫冲成灰紫 */
+  .ultra .aurora{
+    position:absolute;inset:0;pointer-events:none;
+    mix-blend-mode:screen;
+    background:
+      radial-gradient(32% 150% at 26% 50%,rgba(166,132,255,.34) 0%,rgba(166,132,255,.17) 40%,rgba(166,132,255,0) 74%),
+      radial-gradient(26% 150% at 70% 50%,rgba(126,94,246,.26) 0%,rgba(126,94,246,.11) 46%,rgba(126,94,246,0) 78%);
+    animation:aurora-sway 27s ease-in-out infinite alternate;
+    will-change:transform;
+  }
+  /* 极光（暗）：一块深紫阴影，41s 反相摆一趟（周期与 27 不成整数比） */
+  .ultra .shade{
+    position:absolute;inset:0;pointer-events:none;
+    background:radial-gradient(34% 160% at 50% 50%,rgba(38,14,86,.17) 0%,rgba(38,14,86,.08) 46%,rgba(38,14,86,0) 76%);
+    animation:shade-sway 41s ease-in-out infinite alternate;
+    will-change:transform;
+  }
+  @keyframes aurora-sway{
+    from{transform:translate3d(-9%,9%,0)}
+    to{transform:translate3d(17%,-9%,0)}
+  }
+  @keyframes shade-sway{
+    from{transform:translate3d(15%,-8%,0)}
+    to{transform:translate3d(-19%,8%,0)}
+  }
+  .ultra .stars{position:absolute;inset:0;overflow:hidden;border-radius:999px}
+  /* 星带：200% 宽，匀速左移半层宽 —— 左侧出画与右侧复制品入画严格接续，看不到闪现 */
+  .ultra .field{
+    position:absolute;top:0;bottom:0;left:0;width:200%;
+    animation-name:star-drift;
+    animation-timing-function:linear;
+    animation-iteration-count:infinite;
+    will-change:transform;
+  }
+  @keyframes star-drift{
+    from{transform:translate3d(0,0,0)}
+    to{transform:translate3d(-50%,0,0)}
+  }
+  /* 星点：2px 浅紫圆点，亮度恒定（没有任何 opacity/scale 动画） */
+  .ultra .star{
+    position:absolute;width:var(--s);height:var(--s);margin:calc(var(--s) / -2) 0 0 calc(var(--s) / -2);
+    border-radius:50%;
+    background:radial-gradient(circle at 50% 50%,
+      rgba(216,174,255,.97) 0%,
+      rgba(210,166,255,.88) 40%,
+      rgba(204,158,255,.42) 70%,
+      rgba(200,152,255,0) 100%);
+  }
+
+  /* ---------- 刻度点 ---------- */
+  .tick{
+    position:absolute;top:50%;width:5px;height:5px;margin:-2.5px 0 0 -2.5px;
+    border-radius:50%;background:var(--tick);pointer-events:none;
+    transition:background .18s ease;
+  }
+  .tick[data-on="1"]{background:var(--tick-on)}
+
+  /* ---------- 旋钮 ---------- */
+  .knob{
+    position:absolute;top:50%;left:20px;width:40px;height:40px;
+    margin:-20px 0 0 -20px;border-radius:50%;
+    background:#fff;
+    box-shadow:0 1px 5px rgba(0,0,0,.30),0 0 0 .5px rgba(0,0,0,.07);
+    pointer-events:none;
+    will-change:transform;
+  }
+
+  /* ---------- 输入条 ---------- */
+  .composer{
+    position:relative;width:300px;margin:-46px 0 0 auto;padding:58px 14px 14px;
+    background:var(--panel);
+    border:1px solid var(--panel-line);
+    border-radius:22px;
+    box-shadow:var(--shadow);
+    display:flex;align-items:center;gap:10px;
+    transition:background .25s ease,border-color .25s ease;
+    z-index:1;
+  }
+  .pill{
+    flex:1;height:44px;border-radius:999px;border:0;
+    background:var(--chip);color:var(--sub);
+    font-size:15px;font-family:inherit;
+    display:flex;align-items:center;justify-content:center;gap:6px;
+    cursor:pointer;transition:background .15s ease;
+    padding:0 14px;
+  }
+  .pill:hover{filter:brightness(.98)}
+  .pill .chev{width:14px;height:14px;opacity:.8}
+  .send{
+    width:44px;height:44px;flex:0 0 44px;border-radius:50%;border:0;
+    background:var(--send);color:#fff;display:grid;place-items:center;cursor:pointer;
+    transition:background .15s ease,transform .12s ease;
+  }
+  .send:hover{filter:brightness(1.06)}
+  .send:active{transform:scale(.95)}
+  .send svg{width:19px;height:19px}
+
+  /* ---------- 折叠态 ---------- */
+  .stage[data-open="0"] .panel{display:none}
+  .stage[data-open="0"] .composer{margin-top:0;padding:14px 16px}
+  .stage[data-open="0"] .pill{justify-content:flex-start;padding-left:20px;gap:7px}
+  .model{color:var(--text);display:none}
+  .stage[data-open="0"] .model{display:inline}
+  .tier-label{color:var(--tier-color);font-weight:500;transition:color .22s ease;display:none}
+  .stage[data-open="0"] .tier-label{display:inline}
+  .stage[data-open="0"] .pill .chev{order:3;margin-left:2px}
+  .stage[data-open="0"] .pill .placeholder{display:none}
+  .placeholder{white-space:nowrap}
+
+  /* ---------- 页脚控制 ---------- */
+  .controls{display:flex;align-items:center;gap:8px;flex-wrap:wrap;justify-content:center}
+  .seg{
+    display:flex;padding:3px;border-radius:11px;background:rgba(128,128,128,.12);gap:2px;
+  }
+  .seg button{
+    border:0;background:none;font:inherit;font-size:13px;color:var(--sub);
+    padding:6px 13px;border-radius:8px;cursor:pointer;transition:.15s;
+  }
+  .seg button[aria-pressed="true"]{background:var(--panel);color:var(--text);box-shadow:0 1px 3px rgba(0,0,0,.12)}
+  .tiers{display:flex;gap:6px;flex-wrap:wrap;justify-content:center}
+  .tiers button{
+    border:1px solid var(--panel-line);background:var(--panel);font:inherit;font-size:13px;
+    color:var(--sub);padding:6px 12px;border-radius:999px;cursor:pointer;transition:.15s;
+  }
+  .tiers button[aria-pressed="true"]{color:var(--text);border-color:currentColor}
+  .tiers button[data-max="1"][aria-pressed="true"]{color:var(--accent-max)}
+
+  @media (prefers-reduced-motion: reduce){
+    .ultra .field{animation-duration:calc(var(--fd, 30s) * 2.6)}
+    .ultra .aurora,.ultra .shade{animation-duration:80s}
+  }
+</style>
+</head>
+<body>
+
+<div class="stage" id="stage" data-open="1">
+  <div class="panel" id="panel">
+    <div class="head">
+      <div class="title" id="title">高</div>
+      <button class="reset" id="reset" title="重置为默认" aria-label="重置">
+        <svg viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round">
+          <path d="M16.5 10a6.5 6.5 0 1 1-1.9-4.6"/>
+          <path d="M16.8 3.6v3.2h-3.2"/>
+        </svg>
+      </button>
+    </div>
+    <div class="sub">
+      <span>6 Astra</span>
+      <svg class="chev" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><path d="M6 3.5 10.5 8 6 12.5"/></svg>
+    </div>
+
+    <div class="track" id="track" role="slider" tabindex="0"
+         aria-valuemin="0" aria-valuemax="4" aria-valuenow="2" aria-label="推理强度">
+      <div class="fill" id="fill">
+        <div class="ultra" id="ultra">
+          <div class="grad"></div>
+          <div class="aurora"></div>
+          <div class="shade"></div>
+          <div class="stars" id="stars"></div>
+        </div>
+      </div>
+      <div class="ticks" id="ticks"></div>
+      <div class="knob" id="knob"></div>
+    </div>
+  </div>
+
+  <div class="composer">
+    <button class="pill" id="pill" aria-expanded="true">
+      <span class="model">6 Astra</span>
+      <span class="tier-label" id="pillTier">高</span>
+      <span class="placeholder" id="placeholder">选择推理强度</span>
+      <svg class="chev" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><path d="M4 6.5 8 10.5 12 6.5"/></svg>
+    </button>
+    <button class="send" aria-label="发送">
+      <svg viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">
+        <path d="M10 16V4.6"/><path d="M4.9 9.7 10 4.6l5.1 5.1"/>
+      </svg>
+    </button>
+  </div>
+</div>
+
+<div class="controls">
+  <div class="seg" id="themeSeg">
+    <button data-theme="light" aria-pressed="true">浅色</button>
+    <button data-theme="dark" aria-pressed="false">深色</button>
+  </div>
+  <div class="tiers" id="tierBtns"></div>
+</div>
+
+<script>
+(() => {
+  "use strict";
+
+  const TIERS = [
+    { name: "轻度" },
+    { name: "中等" },
+    { name: "高"   },
+    { name: "极高" },
+    { name: "Ultra", max: true }
+  ];
+  const N = TIERS.length;
+  const KNOB = 28;          // 旋钮直径（轨道 24，上下各溢出 2px，与实机 40/36 同比例）
+  const RADIUS = KNOB / 2;
+
+  const stage   = document.getElementById("stage");
+  const track   = document.getElementById("track");
+  const fill    = document.getElementById("fill");
+  const ultra   = document.getElementById("ultra");
+  const knob    = document.getElementById("knob");
+  const title   = document.getElementById("title");
+  const pillTier= document.getElementById("pillTier");
+  const ticksEl = document.getElementById("ticks");
+  const starsEl = document.getElementById("stars");
+
+  /* ---------- 刻度点：与 Codex 一致，只在第 2 档起画点（第 1 档不画） ---------- */
+  const tickEls = [];
+  for (let i = 1; i < N; i++) {
+    const d = document.createElement("div");
+    d.className = "tick";
+    d.style.left = `calc(${RADIUS}px + ${i / (N - 1)} * (100% - ${KNOB}px))`;
+    ticksEl.appendChild(d);
+    tickEls.push({ el: d, i });
+  }
+
+  /* ---------- 星点：三层星带匀速左移，亮度恒定（实机实测：只移动、不闪烁） ---------- */
+  // 每条带 4 颗，铺在 [2%,48%]，另有一份复制品在 +50% 处；带走完 -50% 时复制品正好接上
+  const STAR_LAYERS = [
+    { count: 4, duration: 30 },
+    { count: 4, duration: 21 },
+    { count: 4, duration: 14 }
+  ];
+  const h01 = (i, salt) => {
+    const v = ((i + 1) * salt * 2654435761) % 4294967296;
+    return ((v >>> 8) % 1000) / 1000;
+  };
+  let starIndex = 0;
+  STAR_LAYERS.forEach((layer, li) => {
+    const field = document.createElement("div");
+    field.className = "field";
+    field.style.animationDuration = layer.duration + "s";
+    field.style.animationDelay = (-(layer.duration * (0.13 + 0.21 * li))).toFixed(2) + "s";
+    for (let k = 0; k < layer.count; k++) {
+      const x = 2 + h01(starIndex, 97) * 46;
+      const y = 12 + h01(starIndex, 53) * 76;
+      const size = 2.2 + h01(starIndex, 29) * 0.5;
+      for (let copy = 0; copy < 2; copy++) {
+        const d = document.createElement("div");
+        d.className = "star";
+        d.style.left = (x + copy * 50).toFixed(2) + "%";
+        d.style.top = y.toFixed(1) + "%";
+        d.style.setProperty("--s", size.toFixed(2) + "px");
+        field.appendChild(d);
+      }
+      starIndex++;
+    }
+    starsEl.appendChild(field);
+  });
+
+  /* ---------- 状态 ---------- */
+  let index = 2;            // 当前生效档位
+  let open = true;
+  const DEFAULT_INDEX = 2;
+
+  /* 位置：0..1 —— 旋钮圆心在 [RADIUS, W-RADIUS] 之间移动 */
+  const posOf = i => i / (N - 1);
+
+  /* ---------- 运动引擎（临界阻尼弹簧，吸附约 80ms，手感贴近 Codex） ---------- */
+  const spring = { x: posOf(index), v: 0, target: posOf(index) };
+  const STIFF = 900, DAMP = 2 * Math.sqrt(STIFF) * 0.92;
+  let raf = 0, last = 0;
+
+  function render() {
+    const p = Math.max(0, Math.min(1, spring.x));
+    knob.style.left = `calc(${RADIUS}px + ${p} * (100% - ${KNOB}px))`;
+
+    /* 填充宽度 = 旋钮圆心 + 半径 − 2px：右端的圆弧才与旋钮同心嵌套，不留缺口 */
+    fill.style.width = `calc(${KNOB - 2}px + ${p} * (100% - ${KNOB}px))`;
+
+    /* Ultra 层由档位驱动（见 setIndex），这里只管几何 */
+
+    tickEls.forEach(({ el, i }) => {
+      el.dataset.on = posOf(i) <= p + 0.001 ? "1" : "0";
+    });
+  }
+
+  function tick(now) {
+    if (!last) last = now;
+    let dt = (now - last) / 1000;
+    last = now;
+    if (dt > 0.05) dt = 0.05;
+
+    const dx = spring.target - spring.x;
+    spring.v += (STIFF * dx - DAMP * spring.v) * dt;
+    spring.x += spring.v * dt;
+    if (Math.abs(dx) < 0.0004 && Math.abs(spring.v) < 0.004) {
+      spring.x = spring.target; spring.v = 0;
+      render(); raf = 0; last = 0;
+      return;
+    }
+    render();
+    raf = requestAnimationFrame(tick);
+  }
+
+  function moveTo(p, immediate) {
+    spring.target = Math.max(0, Math.min(1, p));
+    if (immediate) {
+      spring.x = spring.target; spring.v = 0; render(); return;
+    }
+    if (!raf) { last = 0; raf = requestAnimationFrame(tick); }
+  }
+
+  /* ---------- 档位切换 ---------- */
+  function setIndex(i, opts = {}) {
+    i = Math.max(0, Math.min(N - 1, i));
+    index = i;
+    const t = TIERS[i];
+    document.documentElement.style.setProperty(
+      "--tier-color", t.max ? "var(--accent-max)" : "var(--accent)"
+    );
+    title.textContent = t.name;
+    pillTier.textContent = t.name;
+    track.setAttribute("aria-valuenow", String(i));
+    track.setAttribute("aria-valuetext", t.name);
+    ultra.dataset.on = t.max ? "1" : "0";
+    document.querySelectorAll("#tierBtns button").forEach((b, k) => {
+      b.setAttribute("aria-pressed", String(k === i));
+    });
+    if (opts.immediate) moveTo(posOf(i), true);
+    else if (!opts.free) moveTo(posOf(i));
+  }
+
+  /* ---------- 拖动 ---------- */
+  let dragging = false, rect = null;
+
+  function pctFromEvent(ev) {
+    const r = rect || track.getBoundingClientRect();
+    const x = ev.clientX - r.left;
+    const span = r.width - KNOB;
+    return Math.max(0, Math.min(1, (x - RADIUS) / span));
+  }
+
+  track.addEventListener("pointerdown", ev => {
+    if (ev.button !== 0) return;
+    dragging = true;
+    rect = track.getBoundingClientRect();
+    track.setPointerCapture(ev.pointerId);
+    const p = pctFromEvent(ev);
+    /* 拖动时按中点判定档位，实时切换 */
+    const i = Math.round(p * (N - 1));
+    if (i !== index) setIndex(i, { free: true });
+    moveTo(p);
+    ev.preventDefault();
+  });
+
+  track.addEventListener("pointermove", ev => {
+    if (!dragging) return;
+    const p = pctFromEvent(ev);
+    moveTo(p);
+    const i = Math.round(p * (N - 1));
+    if (i !== index) setIndex(i, { free: true });
+  });
+
+  function endDrag() {
+    if (!dragging) return;
+    dragging = false; rect = null;
+    setIndex(index);           // 松手吸附到档位
+  }
+  track.addEventListener("pointerup", endDrag);
+  track.addEventListener("pointercancel", endDrag);
+
+  track.addEventListener("keydown", ev => {
+    let i = index;
+    if (ev.key === "ArrowRight" || ev.key === "ArrowUp") i++;
+    else if (ev.key === "ArrowLeft" || ev.key === "ArrowDown") i--;
+    else if (ev.key === "Home") i = 0;
+    else if (ev.key === "End") i = N - 1;
+    else return;
+    ev.preventDefault();
+    setIndex(i);
+  });
+
+  /* ---------- 重置 / 折叠 ---------- */
+  document.getElementById("reset").addEventListener("click", () => setIndex(DEFAULT_INDEX));
+  const pill = document.getElementById("pill");
+  pill.addEventListener("click", () => {
+    open = !open;
+    stage.dataset.open = open ? "1" : "0";
+    pill.setAttribute("aria-expanded", String(open));
+    if (open) {
+      rect = null;
+      spring.x = posOf(index); spring.v = 0; render();
+    }
+  });
+
+  /* ---------- 主题 & 档位按钮 ---------- */
+  document.getElementById("themeSeg").addEventListener("click", ev => {
+    const b = ev.target.closest("button"); if (!b) return;
+    const th = b.dataset.theme;
+    document.documentElement.dataset.theme = th;
+    document.querySelectorAll("#themeSeg button").forEach(x =>
+      x.setAttribute("aria-pressed", String(x === b)));
+  });
+
+  const tierBtns = document.getElementById("tierBtns");
+  TIERS.forEach((t, i) => {
+    const b = document.createElement("button");
+    b.textContent = t.name;
+    if (t.max) b.dataset.max = "1";
+    b.addEventListener("click", () => setIndex(i));
+    tierBtns.appendChild(b);
+  });
+
+  /* ---------- 初始化 ---------- */
+  setIndex(index, { immediate: true });
+  document.documentElement.style.setProperty(
+    "--tier-color", TIERS[index].max ? "var(--accent-max)" : "var(--accent)"
+  );
+  render();
+})();
+</script>
+</body>
+</html>

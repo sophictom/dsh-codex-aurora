@@ -1,0 +1,49 @@
+{
+  "name": "dsh-codex-aurora",
+  "version": "1.0.0",
+  "private": true,
+  "description": "Codex 风格的推理等级滑条：普通档位纯蓝，只有最高档是静止的紫罗兰渐变 + 旋钮侧高光 + 闪烁星点",
+  "license": "MIT",
+  "keywords": [
+    "dsh",
+    "dsh-plugin",
+    "deepseek-harness",
+    "reasoning-effort",
+    "slider",
+    "ui",
+    "aurora"
+  ],
+  "type": "module",
+  "main": "./lib/index.js",
+  "exports": {
+    ".": "./lib/index.js",
+    "./client": "./lib/client.js",
+    "./package.json": "./package.json",
+    "./locale/*": "./locale/*"
+  },
+  "files": [
+    "lib/index.js",
+    "lib/client.js",
+    "cordis.patch.yml",
+    "locale",
+    "LICENSE",
+    "test",
+    "preview",
+    "README.md"
+  ],
+  "engines": {
+    "node": ">=22"
+  },
+  "dsh": {
+    "bundle": {
+      "patch": "./cordis.patch.yml"
+    },
+    "client": {
+      "platform": "web",
+      "immediately": true
+    }
+  },
+  "scripts": {
+    "test": "node test/client.test.mjs"
+  }
+}
